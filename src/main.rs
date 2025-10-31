@@ -7,6 +7,9 @@ use std::env;
 use std::sync::Arc;
 use warp::Filter;
 
+/// Default server port
+const DEFAULT_PORT: u16 = 3030;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load environment variables from .env file
@@ -15,12 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logger
     env_logger::init();
     
-    // Parse command line arguments
-    let args: Vec<String> = env::args().collect();
-    
     // Check for seed command
-    if args.len() > 1 && args[1] == "seed" {
-        return handle_seed_command(&args).await;
+    if env::args().len() > 1 && env::args().nth(1).unwrap_or_default() == "seed" {
+        return handle_seed_command(&env::args().collect::<Vec<_>>()).await;
     }
     
     println!("Rust Simple API started!");
@@ -44,9 +44,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Get server port from environment variable or use default
     let port: u16 = env::var("PORT")
-        .unwrap_or_else(|_| "3030".to_string())
+        .unwrap_or_else(|_| DEFAULT_PORT.to_string())
         .parse()
-        .unwrap_or(3030);
+        .unwrap_or(DEFAULT_PORT);
     
     // Configure routes
     let health_route = warp::path("health")
