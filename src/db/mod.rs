@@ -63,7 +63,7 @@ mod tests {
         // This avoids the dotenv issue
         let test_db_name = "test_simple_api_db";
 
-        match Client::with_uri_str("mongodb://api_user:api_password@localhost:27017/simple_api_db")
+        match Client::with_uri_str("mongodb://admin:admin@localhost:27017/simple_api_db?authSource=admin")
             .await
         {
             Ok(client) => {
@@ -116,14 +116,14 @@ mod tests {
         unsafe {
             env::set_var(
                 "MONGODB_URI",
-                "mongodb://api_user:api_password@custom-host:27017",
+                "mongodb://admin:admin@custom-host:27017",
             );
         }
         let mongodb_uri =
             env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
         assert_eq!(
             mongodb_uri,
-            "mongodb://api_user:api_password@custom-host:27017"
+            "mongodb://admin:admin@custom-host:27017"
         );
 
         // Test default database name

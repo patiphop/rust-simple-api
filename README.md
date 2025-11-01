@@ -77,6 +77,41 @@ cargo test
 cargo test --test integration_tests
 ```
 
+## Test Data Cleanup
+
+The integration tests include automatic cleanup functionality that tracks created users and logs cleanup operations. However, due to runtime constraints, the actual cleanup is disabled to avoid conflicts.
+
+### Automatic Cleanup (Logging Only)
+- Tests automatically track created users using a `TestGuard` pattern
+- Cleanup operations are logged when tests complete
+- Test data may remain in the database after test runs
+
+### Manual Cleanup
+To clean up test data manually, run:
+
+```bash
+# Clean up test users from database
+./cleanup_test_data.sh
+```
+
+This script removes users with test-specific patterns:
+- Users with `@test.com` email addresses
+- Users with "Test", "Integration", "Concurrent", or "Database" in their names
+
+### Database Reset Options
+For complete database management, use the seed data script:
+
+```bash
+# Clear all users
+./seed_data.sh clear
+
+# Count current users
+./seed_data.sh count
+
+# Reset and reseed with fresh data
+./seed_data.sh reseed
+```
+
 ## Project Structure
 
 ```

@@ -201,7 +201,7 @@ mod tests {
         // Try different connection strings in order of preference
         // Start with authenticated connection since MongoDB requires auth
         let connection_strings = vec![
-            "mongodb://api_user:api_password@localhost:27017/simple_api_db",
+            "mongodb://admin:admin@localhost:27017/simple_api_db?authSource=admin",
             "mongodb://admin:password@localhost:27017/simple_api_db?authSource=admin",
             "mongodb://localhost:27017",
         ];

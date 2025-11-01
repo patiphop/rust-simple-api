@@ -12,7 +12,7 @@ try {
   try {
     var existingUsers = db.getUsers ? db.getUsers() : [];
     var userExists = existingUsers.some(function(user) {
-      return user.user === "api_user";
+      return user.user === "admin";
     });
   } catch (e) {
     print("Warning: Could not check existing users, proceeding with user creation: " + e.message);
@@ -20,10 +20,10 @@ try {
   }
 
   if (userExists) {
-    print("User 'api_user' already exists, skipping user creation");
+    print("User 'admin' already exists, skipping user creation");
   } else {
     // Create application user with read/write permissions
-    print("Creating user 'api_user' with readWrite permissions...");
+    print("Creating user 'admin' with readWrite permissions...");
     db.createUser({
       user: "admin",
       pwd: "admin",
@@ -34,7 +34,7 @@ try {
         }
       ]
     });
-    print("✅ User 'api_user' created successfully");
+    print("✅ User 'admin' created successfully");
   }
 
   // Create initial collections with error handling
@@ -53,7 +53,7 @@ try {
   print("Verifying user permissions...");
   try {
     // Test authentication
-    db.auth("api_user", "api_password");
+    db.auth("admin", "admin");
     print("✅ User authentication successful");
     
     // Test basic operations
