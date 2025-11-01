@@ -65,10 +65,11 @@ jobs:
         ports:
           - 27017:27017
         options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
+          --health-cmd "mongosh --username admin --password password --authenticationDatabase admin --eval 'db.runCommand({ping: 1})'"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
+          --health-start-period 30s
         volumes:
           - ${{ github.workspace }}/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
     
@@ -96,6 +97,21 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y mongodb-mongosh jq
         
+    - name: Debug MongoDB container status
+      run: |
+        echo "=== MongoDB Container Debug Information ==="
+        echo "Container ID: ${{ job.services.mongodb.id }}"
+        echo "Container status:"
+        docker ps -a --filter "id=${{ job.services.mongodb.id }}"
+        echo ""
+        echo "Container logs (first 50 lines):"
+        docker logs --tail 50 ${{ job.services.mongodb.id }} || echo "Could not fetch logs"
+        echo ""
+        echo "Network information:"
+        docker network ls
+        echo ""
+        echo "=== End Debug Information ==="
+        
     - name: Wait for MongoDB to be ready
       run: |
         echo "Waiting for MongoDB to be ready..."
@@ -105,17 +121,18 @@ jobs:
         for i in $(seq 1 $MAX_RETRIES); do
           echo "Attempt $i/$MAX_RETRIES: Checking MongoDB readiness..."
           
-          # Check MongoDB service health
-          if mongosh --eval "db.adminCommand('ping')" mongodb://admin:password@localhost:27017/admin --quiet 2>/dev/null; then
+          # Check MongoDB service health with detailed error output
+          echo "Attempting MongoDB connection with authentication..."
+          if mongosh --username admin --password password --authenticationDatabase admin --eval "db.adminCommand('ping')" --quiet 2>/dev/null; then
             echo "✅ MongoDB is ready!"
             
             # Additional verification - test database operations
-            if mongosh --eval "
+            if mongosh --username admin --password password --authenticationDatabase admin --eval "
               db = db.getSiblingDB('simple_api_db');
               db.auth('api_user', 'api_password');
               db.test_collection.insertOne({test: 'readiness_check'});
               db.test_collection.drop();
-            " mongodb://admin:password@localhost:27017/admin --quiet 2>/dev/null; then
+            " --quiet 2>/dev/null; then
               echo "✅ MongoDB database operations verified successfully!"
             else
               echo "⚠️ MongoDB is responding but database operations failed"
@@ -149,7 +166,7 @@ jobs:
         
         # Test connection with application user
         echo "Testing application user permissions and database operations..."
-        if mongosh --eval "
+        if mongosh --username admin --password password --authenticationDatabase admin --eval "
           try {
             db = db.getSiblingDB('simple_api_db');
             db.auth('api_user', 'api_password');
@@ -179,7 +196,7 @@ jobs:
             print('❌ MongoDB operation failed: ' + error);
             quit(1);
           }
-        " mongodb://admin:password@localhost:27017/admin --quiet; then
+        " --quiet; then
           echo "✅ MongoDB setup verification successful"
         else
           echo "❌ MongoDB setup verification failed"
