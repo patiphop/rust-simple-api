@@ -1,0 +1,387 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Job 1: Code Quality Checks
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
+    - name: Check code formatting
+      run: cargo fmt --all -- --check
+      
+    - name: Run Clippy lints
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      
+    - name: Check for security advisories
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+  # Job 2: Unit Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
+    - name: Run unit tests
+      run: cargo test --lib --bins
+      
+    - name: Generate test coverage report
+      run: |
+        cargo install cargo-tarpaulin
+        cargo tarpaulin --out Xml --output-dir ./coverage
+      continue-on-error: true
+      
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage/cobertura.xml
+        flags: unittests
+        name: rust-simple-api-coverage
+      continue-on-error: true
+
+  # Job 3: Build Check
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
+    - name: Build in release mode
+      run: cargo build --release --verbose
+      
+    - name: Check binary size
+      run: |
+        ls -lh target/release/rust-simple-api
+        size=$(stat -c%s target/release/rust-simple-api)
+        echo "Binary size: $size bytes"
+        # Alert if binary is larger than 50MB
+        if [ $size -gt 52428800 ]; then
+          echo "::warning::Binary size is larger than 50MB"
+        fi
+
+  # Job 4: Integration Tests with MongoDB
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: password
+          MONGO_INITDB_DATABASE: simple_api_db
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongo --eval 'db.runCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        volumes:
+          - ${{ github.workspace }}/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
+    - name: Install MongoDB client tools and jq
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mongodb-clients jq
+        
+    - name: Wait for MongoDB to be ready
+      run: |
+        echo "Waiting for MongoDB to be ready..."
+        for i in {1..30}; do
+          if mongo --eval "db.adminCommand('ping')" mongodb://admin:password@localhost:27017/admin --quiet; then
+            echo "MongoDB is ready!"
+            break
+          fi
+          echo "Attempt $i: MongoDB not ready yet..."
+          sleep 2
+        done
+        
+    - name: Verify MongoDB setup
+      run: |
+        # Test connection with application user
+        mongo --eval "
+          db = db.getSiblingDB('simple_api_db');
+          db.auth('api_user', 'api_password');
+          db.createCollection('test_connection');
+          db.test_connection.insertOne({test: 'connection'});
+          db.test_connection.find();
+          db.test_connection.drop();
+        " mongodb://admin:password@localhost:27017/admin
+        
+    - name: Create test environment file
+      run: |
+        cat > .env << EOF
+        # MongoDB Configuration
+        MONGODB_URI=mongodb://api_user:api_password@localhost:27017/simple_api_db
+        DATABASE_NAME=simple_api_db
+        
+        # Server Configuration
+        PORT=3030
+        
+        # Test Configuration
+        TEST_API_BASE_URL=http://localhost:3030
+        TEST_TIMEOUT_SECONDS=60
+        EOF
+        
+    - name: Build application
+      run: cargo build --verbose
+      
+    - name: Start application in background
+      run: |
+        cargo run > app.log 2>&1 &
+        APP_PID=$!
+        echo "Application started with PID: $APP_PID"
+        echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+        
+        # Create a simple health check script
+        cat > check_app.sh << 'EOF'
+        #!/bin/bash
+        for i in {1..30}; do
+          if curl -f http://localhost:3030/health > /dev/null 2>&1; then
+            echo "Application is ready!"
+            exit 0
+          fi
+          echo "Attempt $i: Application not ready yet..."
+          sleep 2
+        done
+        echo "Application failed to start within timeout"
+        exit 1
+        EOF
+        chmod +x check_app.sh
+        
+    - name: Wait for application to be ready
+      run: |
+        echo "Waiting for application to be ready..."
+        ./check_app.sh
+        
+    - name: Show application logs if failed
+      if: failure()
+      run: |
+        echo "Application startup logs:"
+        cat app.log || echo "No application logs found"
+        
+    - name: Verify application health
+      run: |
+        response=$(curl -s http://localhost:3030/health)
+        echo "Health check response: $response"
+        echo "$response" | jq -e '.status == "ok"'
+        
+    - name: Run integration tests
+      run: cargo test --test integration_tests --verbose
+      env:
+        MONGODB_URI: mongodb://api_user:api_password@localhost:27017/simple_api_db
+        DATABASE_NAME: simple_api_db
+        TEST_API_BASE_URL: http://localhost:3030
+        TEST_TIMEOUT_SECONDS: 60
+        
+    - name: Stop application
+      if: always()
+      run: |
+        if [ -n "$APP_PID" ]; then
+          echo "Stopping application with PID: $APP_PID"
+          kill $APP_PID || true
+          sleep 5
+          kill -9 $APP_PID 2>/dev/null || true
+          wait $APP_PID 2>/dev/null || true
+        fi
+        
+    - name: Collect application logs
+      if: failure()
+      run: |
+        echo "Application logs:"
+        cat app.log || echo "No application logs found"
+        echo "MongoDB logs:"
+        docker logs ${{ job.services.mongodb.id }} || echo "No MongoDB logs available"
+
+  # Job 5: Security and Performance Checks (Optional but recommended)
+  security-performance:
+    name: Security & Performance Checks
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, build-check, integration-tests]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+          
+    - name: Install cargo-deny for dependency checking
+      run: cargo install cargo-deny
+      
+    - name: Check dependencies for vulnerabilities
+      run: cargo deny check
+      
+    - name: Install cargo-bloat for binary analysis
+      run: cargo install cargo-bloat
+      
+    - name: Analyze binary size
+      run: |
+        cargo build --release
+        cargo bloat --release --crates
+      continue-on-error: true
+
+  # Job 6: Build Artifacts
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, build-check, integration-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu, x86_64-apple-darwin, x86_64-pc-windows-gnu]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+        
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.target }}-cargo-
+          
+    - name: Build for target
+      run: cargo build --release --target ${{ matrix.target }}
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: rust-simple-api-${{ matrix.target }}
+        path: |
+          target/${{ matrix.target }}/release/rust-simple-api
+          target/${{ matrix.target }}/release/rust-simple-api.exe
+        retention-days: 30
+
+# Workflow status summary
+  workflow-summary:
+    name: Workflow Summary
+    runs-on: ubuntu-latest
+    needs: [code-quality, unit-tests, build-check, integration-tests]
+    if: always()
+    
+    steps:
+    - name: Summary
+      run: |
+        echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Code Quality | ${{ needs.code-quality.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Unit Tests | ${{ needs.unit-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build Check | ${{ needs.build-check.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Integration Tests | ${{ needs.integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Overall pipeline status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
