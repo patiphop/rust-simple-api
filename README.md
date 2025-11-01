@@ -18,7 +18,7 @@ cd rust-simple-api
 
 2. Set up environment variables (create `.env` file):
 ```bash
-MONGODB_URI=mongodb://api_user:api_password@localhost:27017/simple_api_db
+MONGODB_URI=mongodb://admin:admin@localhost:27017/simple_api_db
 DATABASE_NAME=simple_api_db
 PORT=3030
 ```
