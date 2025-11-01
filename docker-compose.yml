@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
   mongodb:
-    image: mongo:7.0
+    image: mongo:8.2
     container_name: rust-simple-api-mongodb
     restart: unless-stopped
     ports:
       - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_ROOT_PASSWORD: admin
       MONGO_INITDB_DATABASE: simple_api_db
     volumes:
       - mongodb_data:/data/db

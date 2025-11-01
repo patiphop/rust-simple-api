@@ -94,7 +94,7 @@ start_mongodb() {
         # Check if container is running
         if docker-compose ps | grep -q "Up"; then
             print_success "MongoDB is ready and running on port 27017."
-            print_status "Connection string: mongodb://api_user:api_password@localhost:27017/simple_api_db"
+            print_status "Connection string: mongodb://admin:admin@localhost:27017/simple_api_db"
         else
             print_error "Failed to start MongoDB container."
             docker-compose logs
@@ -140,9 +140,9 @@ show_status() {
         echo "  Host: localhost"
         echo "  Port: 27017"
         echo "  Database: simple_api_db"
-        echo "  Username: api_user"
-        echo "  Password: api_password"
-        echo "  Connection String: mongodb://api_user:api_password@localhost:27017/simple_api_db"
+        echo "  Username: admin"
+        echo "  Password: admin"
+        echo "  Connection String: mongodb://admin:admin@localhost:27017/simple_api_db"
     else
         print_warning "MongoDB container is not running."
         echo ""

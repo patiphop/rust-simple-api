@@ -1,6 +1,6 @@
 # Rust Simple API
 
-A simple REST API built with Rust and MongoDB for user management.
+A simple REST API built with Rust and MongoDB 8.2 for user management.
 
 ## Technology Stack
 
@@ -23,8 +23,9 @@ DATABASE_NAME=simple_api_db
 PORT=3030
 ```
 
-3. Start MongoDB with Docker:
+3. Initialize MongoDB with Docker:
 ```bash
+# Start MongoDB container with default credentials
 ./docker_setup.sh start
 ```
 
