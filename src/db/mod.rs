@@ -10,24 +10,21 @@ const DEFAULT_DATABASE_NAME: &str = "simple_api_db";
 /// Establishes a connection to MongoDB and returns the database instance
 pub async fn connect_to_database() -> Result<Database, Box<dyn std::error::Error>> {
     // Get MongoDB connection string from environment variables
-    let mongodb_uri = env::var("MONGODB_URI")
-        .unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
-    
+    let mongodb_uri = env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
+
     // Get database name from environment variables
-    let db_name = env::var("DATABASE_NAME")
-        .unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
-    
+    let db_name = env::var("DATABASE_NAME").unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
+
     // Connect to MongoDB
     let client = Client::with_uri_str(mongodb_uri).await?;
-    
+
     // Get the database instance
     let database = client.database(&db_name);
-    
+
     println!("Connected to MongoDB database: {}", db_name);
-    
+
     Ok(database)
 }
-
 
 /// Seed data module for populating the database with mock data
 pub mod seed;
@@ -43,7 +40,7 @@ mod tests {
         // Test the default connection behavior directly
         // Since dotenv loads .env file, we test with what's actually available
         let result = connect_to_database().await;
-        
+
         // Note: This test will fail if MongoDB is not running
         // In a real test environment, you would set up a test MongoDB instance
         match result {
@@ -65,12 +62,17 @@ mod tests {
         // Test with a direct connection instead of environment variables
         // This avoids the dotenv issue
         let test_db_name = "test_simple_api_db";
-        
-        match Client::with_uri_str("mongodb://api_user:api_password@localhost:27017/simple_api_db").await {
+
+        match Client::with_uri_str("mongodb://api_user:api_password@localhost:27017/simple_api_db")
+            .await
+        {
             Ok(client) => {
                 let database = client.database(test_db_name);
                 assert_eq!(database.name(), test_db_name);
-                println!("Successfully connected to test database: {}", database.name());
+                println!(
+                    "Successfully connected to test database: {}",
+                    database.name()
+                );
             }
             Err(_) => {
                 println!("MongoDB not available for testing - skipping connection test");
@@ -82,11 +84,14 @@ mod tests {
     async fn test_connect_to_database_invalid_uri() {
         // Test with a direct invalid connection to avoid dotenv issues
         // Use a completely invalid protocol to ensure failure
-        let result = Client::with_uri_str("invalid://nonexistent-host-12345:27017/?serverSelectionTimeoutMS=1000").await;
-        
+        let result = Client::with_uri_str(
+            "invalid://nonexistent-host-12345:27017/?serverSelectionTimeoutMS=1000",
+        )
+        .await;
+
         // Should fail with invalid URI
         assert!(result.is_err());
-        
+
         match result {
             Err(e) => {
                 println!("Expected connection failure: {}", e);
@@ -97,41 +102,46 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_environment_variable_parsing() {
         // Test default MongoDB URI
         unsafe {
             env::remove_var("MONGODB_URI");
         }
-        let mongodb_uri = env::var("MONGODB_URI")
-            .unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
+        let mongodb_uri =
+            env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
         assert_eq!(mongodb_uri, DEFAULT_MONGODB_URI);
-        
+
         // Test custom MongoDB URI
         unsafe {
-            env::set_var("MONGODB_URI", "mongodb://api_user:api_password@custom-host:27017");
+            env::set_var(
+                "MONGODB_URI",
+                "mongodb://api_user:api_password@custom-host:27017",
+            );
         }
-        let mongodb_uri = env::var("MONGODB_URI")
-            .unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
-        assert_eq!(mongodb_uri, "mongodb://api_user:api_password@custom-host:27017");
-        
+        let mongodb_uri =
+            env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
+        assert_eq!(
+            mongodb_uri,
+            "mongodb://api_user:api_password@custom-host:27017"
+        );
+
         // Test default database name
         unsafe {
             env::remove_var("DATABASE_NAME");
         }
-        let db_name = env::var("DATABASE_NAME")
-            .unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
+        let db_name =
+            env::var("DATABASE_NAME").unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
         assert_eq!(db_name, DEFAULT_DATABASE_NAME);
-        
+
         // Test custom database name
         unsafe {
             env::set_var("DATABASE_NAME", "custom_db");
         }
-        let db_name = env::var("DATABASE_NAME")
-            .unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
+        let db_name =
+            env::var("DATABASE_NAME").unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
         assert_eq!(db_name, "custom_db");
-        
+
         // Clean up
         unsafe {
             env::remove_var("MONGODB_URI");
@@ -146,30 +156,30 @@ mod tests {
             env::set_var("MONGODB_URI", "");
             env::set_var("DATABASE_NAME", "");
         }
-        
-        let mongodb_uri = env::var("MONGODB_URI")
-            .unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
-        let db_name = env::var("DATABASE_NAME")
-            .unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
-        
+
+        let mongodb_uri =
+            env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
+        let db_name =
+            env::var("DATABASE_NAME").unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
+
         // Should fall back to defaults when empty strings are provided
         assert_eq!(mongodb_uri, "");
         assert_eq!(db_name, "");
-        
+
         // Test with whitespace-only environment variables
         unsafe {
             env::set_var("MONGODB_URI", "   ");
             env::set_var("DATABASE_NAME", "   ");
         }
-        
-        let mongodb_uri = env::var("MONGODB_URI")
-            .unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
-        let db_name = env::var("DATABASE_NAME")
-            .unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
-        
+
+        let mongodb_uri =
+            env::var("MONGODB_URI").unwrap_or_else(|_| DEFAULT_MONGODB_URI.to_string());
+        let db_name =
+            env::var("DATABASE_NAME").unwrap_or_else(|_| DEFAULT_DATABASE_NAME.to_string());
+
         assert_eq!(mongodb_uri, "   ");
         assert_eq!(db_name, "   ");
-        
+
         // Clean up
         unsafe {
             env::remove_var("MONGODB_URI");

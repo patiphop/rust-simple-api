@@ -33,7 +33,7 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
           
@@ -68,7 +68,7 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
           
@@ -109,7 +109,7 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
           
@@ -141,7 +141,7 @@ jobs:
         ports:
           - 27017:27017
         options: >-
-          --health-cmd "mongo --eval 'db.runCommand({ping: 1})'"
+          --health-cmd "mongosh --eval 'db.runCommand({ping: 1})'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -163,38 +163,116 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
           
     - name: Install MongoDB client tools and jq
       run: |
         sudo apt-get update
-        sudo apt-get install -y mongodb-clients jq
+        sudo apt-get install -y mongodb-mongosh jq
         
     - name: Wait for MongoDB to be ready
       run: |
         echo "Waiting for MongoDB to be ready..."
-        for i in {1..30}; do
-          if mongo --eval "db.adminCommand('ping')" mongodb://admin:password@localhost:27017/admin --quiet; then
-            echo "MongoDB is ready!"
+        MAX_RETRIES=30
+        RETRY_INTERVAL=2
+        
+        for i in $(seq 1 $MAX_RETRIES); do
+          echo "Attempt $i/$MAX_RETRIES: Checking MongoDB readiness..."
+          
+          # Check MongoDB service health
+          if mongosh --eval "db.adminCommand('ping')" mongodb://admin:password@localhost:27017/admin --quiet 2>/dev/null; then
+            echo "✅ MongoDB is ready!"
+            
+            # Additional verification - test database operations
+            if mongosh --eval "
+              db = db.getSiblingDB('simple_api_db');
+              db.auth('api_user', 'api_password');
+              db.test_collection.insertOne({test: 'readiness_check'});
+              db.test_collection.drop();
+            " mongodb://admin:password@localhost:27017/admin --quiet 2>/dev/null; then
+              echo "✅ MongoDB database operations verified successfully!"
+            else
+              echo "⚠️ MongoDB is responding but database operations failed"
+            fi
             break
+          else
+            echo "❌ MongoDB not ready yet..."
+            
+            # Show container logs for debugging if this is a later retry
+            if [ $i -gt 15 ]; then
+              echo "=== MongoDB Container Logs (last 20 lines) ==="
+              docker logs --tail 20 ${{ job.services.mongodb.id }} || echo "Could not fetch MongoDB logs"
+              echo "================================================"
+            fi
           fi
-          echo "Attempt $i: MongoDB not ready yet..."
-          sleep 2
+          
+          if [ $i -eq $MAX_RETRIES ]; then
+            echo "❌ MongoDB failed to become ready within $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
+            echo "=== Final MongoDB Container Logs ==="
+            docker logs ${{ job.services.mongodb.id }} || echo "Could not fetch MongoDB logs"
+            echo "===================================="
+            exit 1
+          fi
+          
+          sleep $RETRY_INTERVAL
         done
         
     - name: Verify MongoDB setup
       run: |
+        echo "🔍 Verifying MongoDB setup..."
+        
         # Test connection with application user
-        mongo --eval "
-          db = db.getSiblingDB('simple_api_db');
-          db.auth('api_user', 'api_password');
-          db.createCollection('test_connection');
-          db.test_connection.insertOne({test: 'connection'});
-          db.test_connection.find();
-          db.test_connection.drop();
-        " mongodb://admin:password@localhost:27017/admin
+        echo "Testing application user permissions and database operations..."
+        if mongosh --eval "
+          try {
+            db = db.getSiblingDB('simple_api_db');
+            db.auth('api_user', 'api_password');
+            
+            // Test collection creation
+            db.createCollection('test_connection');
+            print('✅ Collection creation successful');
+            
+            // Test document insertion
+            db.test_connection.insertOne({
+              test: 'connection',
+              timestamp: new Date(),
+              test_id: Math.random().toString(36).substring(7)
+            });
+            print('✅ Document insertion successful');
+            
+            // Test document retrieval
+            var docs = db.test_connection.find().toArray();
+            print('✅ Document retrieval successful, found ' + docs.length + ' documents');
+            
+            // Test document deletion
+            db.test_connection.drop();
+            print('✅ Collection cleanup successful');
+            
+            print('🎉 All MongoDB operations completed successfully!');
+          } catch (error) {
+            print('❌ MongoDB operation failed: ' + error);
+            quit(1);
+          }
+        " mongodb://admin:password@localhost:27017/admin --quiet; then
+          echo "✅ MongoDB setup verification successful"
+        else
+          echo "❌ MongoDB setup verification failed"
+          echo ""
+          echo "=== MongoDB Container Logs ==="
+          docker logs ${{ job.services.mongodb.id }} || echo "Could not fetch MongoDB logs"
+          echo "=============================="
+          echo ""
+          echo "=== MongoDB Container Status ==="
+          docker ps -a --filter "id=${{ job.services.mongodb.id }}" || echo "Could not fetch container status"
+          echo "=============================="
+          echo ""
+          echo "=== Network Information ==="
+          docker network ls || echo "Could not list networks"
+          echo "========================="
+          exit 1
+        fi
         
     - name: Create test environment file
       run: |
@@ -216,37 +294,83 @@ jobs:
       
     - name: Start application in background
       run: |
+        echo "🚀 Starting application in background..."
         cargo run > app.log 2>&1 &
         APP_PID=$!
-        echo "Application started with PID: $APP_PID"
+        echo "✅ Application started with PID: $APP_PID"
         echo "APP_PID=$APP_PID" >> $GITHUB_ENV
         
-        # Create a simple health check script
+        # Create an enhanced health check script
         cat > check_app.sh << 'EOF'
         #!/bin/bash
-        for i in {1..30}; do
-          if curl -f http://localhost:3030/health > /dev/null 2>&1; then
-            echo "Application is ready!"
-            exit 0
+        MAX_RETRIES=30
+        RETRY_INTERVAL=2
+        
+        echo "🔍 Checking application health..."
+        
+        for i in $(seq 1 $MAX_RETRIES); do
+          echo "Attempt $i/$MAX_RETRIES: Checking application health..."
+          
+          # Check if process is still running
+          if ! kill -0 $APP_PID 2>/dev/null; then
+            echo "❌ Application process (PID: $APP_PID) is not running"
+            echo "=== Application Logs ==="
+            cat app.log
+            echo "======================"
+            exit 1
           fi
-          echo "Attempt $i: Application not ready yet..."
-          sleep 2
+          
+          # Check HTTP health endpoint
+          if curl -f -s -m 5 http://localhost:3030/health > /dev/null 2>&1; then
+            echo "✅ Application is ready and responding!"
+            
+            # Additional health check - verify response content
+            HEALTH_RESPONSE=$(curl -s http://localhost:3030/health 2>/dev/null || echo "")
+            if echo "$HEALTH_RESPONSE" | grep -q '"status".*"ok"'; then
+              echo "✅ Application health check passed!"
+              exit 0
+            else
+              echo "⚠️ Application responded but health check failed"
+              echo "Response: $HEALTH_RESPONSE"
+            fi
+          else
+            echo "❌ Application not responding yet..."
+          fi
+          
+          if [ $i -eq $MAX_RETRIES ]; then
+            echo "❌ Application failed to start within $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
+            echo "=== Application Startup Logs ==="
+            cat app.log
+            echo "=============================="
+            echo "=== Process Status ==="
+            ps aux | grep $APP_PID || echo "Process not found"
+            echo "===================="
+            echo "=== Network Status ==="
+            netstat -tlnp 2>/dev/null | grep :3030 || echo "Port 3030 not listening"
+            echo "====================="
+            exit 1
+          fi
+          
+          sleep $RETRY_INTERVAL
         done
-        echo "Application failed to start within timeout"
-        exit 1
         EOF
         chmod +x check_app.sh
         
     - name: Wait for application to be ready
       run: |
-        echo "Waiting for application to be ready..."
+        echo "⏳ Waiting for application to be ready..."
         ./check_app.sh
         
     - name: Show application logs if failed
       if: failure()
       run: |
-        echo "Application startup logs:"
+        echo "❌ Application startup failed. Showing logs:"
+        echo "=== Application Logs ==="
         cat app.log || echo "No application logs found"
+        echo "======================"
+        echo "=== Environment Variables ==="
+        env | grep -E "(MONGODB|DATABASE|PORT)" || echo "No relevant env vars found"
+        echo "============================"
         
     - name: Verify application health
       run: |
@@ -276,10 +400,35 @@ jobs:
     - name: Collect application logs
       if: failure()
       run: |
-        echo "Application logs:"
+        echo "🔍 Collecting diagnostic information..."
+        echo ""
+        echo "=== Application Logs ==="
         cat app.log || echo "No application logs found"
-        echo "MongoDB logs:"
+        echo "======================"
+        echo ""
+        echo "=== MongoDB Container Logs ==="
         docker logs ${{ job.services.mongodb.id }} || echo "No MongoDB logs available"
+        echo "=============================="
+        echo ""
+        echo "=== Container Status ==="
+        docker ps -a --filter "name=mongodb" || echo "Could not fetch container status"
+        echo "======================="
+        echo ""
+        echo "=== Resource Usage ==="
+        echo "Memory usage:"
+        free -h || echo "Could not fetch memory info"
+        echo "Disk usage:"
+        df -h || echo "Could not fetch disk info"
+        echo "==================="
+        echo ""
+        echo "=== Network Status ==="
+        echo "Listening ports:"
+        netstat -tlnp 2>/dev/null | grep -E "(3030|27017)" || echo "Could not fetch port info"
+        echo "==================="
+        echo ""
+        echo "=== Environment Variables ==="
+        env | grep -E "(MONGODB|DATABASE|PORT|APP)" | sort || echo "No relevant env vars found"
+        echo "============================="
 
   # Job 5: Security and Performance Checks (Optional but recommended)
   security-performance:
@@ -303,7 +452,7 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-
           
@@ -350,7 +499,7 @@ jobs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-${{ matrix.target }}-cargo-
           

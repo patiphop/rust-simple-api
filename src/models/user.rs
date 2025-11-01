@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use mongodb::bson::oid::ObjectId;
 use chrono::{DateTime, Utc};
+use mongodb::bson::oid::ObjectId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
@@ -26,7 +26,7 @@ impl User {
             updated_at: Some(now),
         }
     }
-    
+
     /// Create a user with a specific ID (useful when retrieving from database)
     #[allow(dead_code)]
     pub fn with_id(id: ObjectId, name: String, email: String, created_at: DateTime<Utc>) -> Self {
@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn test_new_user() {
         let user = User::new_user("John Doe".to_string(), "john@example.com".to_string());
-        
+
         assert_eq!(user.name, "John Doe");
         assert_eq!(user.email, "john@example.com");
         assert!(user.id.is_none());
@@ -60,8 +60,13 @@ mod tests {
     fn test_user_with_id() {
         let id = ObjectId::new();
         let created_at = Utc::now();
-        let user = User::with_id(id.clone(), "Jane Doe".to_string(), "jane@example.com".to_string(), created_at);
-        
+        let user = User::with_id(
+            id,
+            "Jane Doe".to_string(),
+            "jane@example.com".to_string(),
+            created_at,
+        );
+
         assert_eq!(user.name, "Jane Doe");
         assert_eq!(user.email, "jane@example.com");
         assert_eq!(user.id, Some(id));
@@ -72,13 +77,13 @@ mod tests {
     #[test]
     fn test_user_serialization() {
         let user = User::new_user("Test User".to_string(), "test@example.com".to_string());
-        
+
         // Test serialization to JSON
         let json_result = serde_json::to_string(&user);
         assert!(json_result.is_ok());
-        
+
         let json_str = json_result.unwrap();
-        
+
         // Verify JSON contains expected fields (but not _id since it's None)
         assert!(json_str.contains("name"));
         assert!(json_str.contains("email"));
@@ -91,14 +96,19 @@ mod tests {
     fn test_user_with_id_serialization() {
         let id = ObjectId::new();
         let created_at = Utc::now();
-        let user = User::with_id(id.clone(), "Test User".to_string(), "test@example.com".to_string(), created_at);
-        
+        let user = User::with_id(
+            id,
+            "Test User".to_string(),
+            "test@example.com".to_string(),
+            created_at,
+        );
+
         // Test serialization to JSON
         let json_result = serde_json::to_string(&user);
         assert!(json_result.is_ok());
-        
+
         let json_str = json_result.unwrap();
-        
+
         // Verify JSON contains expected fields including _id
         assert!(json_str.contains("name"));
         assert!(json_str.contains("email"));
@@ -118,10 +128,10 @@ mod tests {
             "updated_at": "2023-01-01T00:00:00Z"
         }
         "#;
-        
+
         let user_result: Result<User, _> = serde_json::from_str(json_data);
         assert!(user_result.is_ok());
-        
+
         let user = user_result.unwrap();
         assert_eq!(user.name, "Test User");
         assert_eq!(user.email, "test@example.com");
@@ -137,10 +147,10 @@ mod tests {
             "created_at": "2023-01-01T00:00:00Z"
         }
         "#;
-        
+
         let user_result: Result<User, _> = serde_json::from_str(json_data);
         assert!(user_result.is_ok());
-        
+
         let user = user_result.unwrap();
         assert_eq!(user.name, "Test User");
         assert_eq!(user.email, "test@example.com");
@@ -153,18 +163,18 @@ mod tests {
         let user_empty = User::new_user("".to_string(), "".to_string());
         assert_eq!(user_empty.name, "");
         assert_eq!(user_empty.email, "");
-        
+
         // Test with very long strings
         let long_name = "a".repeat(1000);
         let long_email = "b".repeat(1000);
         let user_long = User::new_user(long_name.clone(), long_email.clone());
         assert_eq!(user_long.name, long_name);
         assert_eq!(user_long.email, long_email);
-        
+
         // Test with special characters
         let user_special = User::new_user(
             "用户测试".to_string(),
-            "test+special@example.co.uk".to_string()
+            "test+special@example.co.uk".to_string(),
         );
         assert_eq!(user_special.name, "用户测试");
         assert_eq!(user_special.email, "test+special@example.co.uk");
@@ -175,22 +185,22 @@ mod tests {
         let before_creation = Utc::now();
         let user = User::new_user("Time Test".to_string(), "time@example.com".to_string());
         let after_creation = Utc::now();
-        
+
         // Verify timestamps are set correctly
         assert!(user.created_at >= before_creation);
         assert!(user.created_at <= after_creation);
         assert!(user.updated_at.is_some());
         assert_eq!(user.updated_at.unwrap(), user.created_at);
-        
+
         // Test with specific timestamp
         let specific_time = Utc::now();
         let user_specific = User::with_id(
             ObjectId::new(),
             "Specific Time".to_string(),
             "specific@example.com".to_string(),
-            specific_time
+            specific_time,
         );
-        
+
         assert_eq!(user_specific.created_at, specific_time);
         assert_eq!(user_specific.updated_at.unwrap(), specific_time);
     }
