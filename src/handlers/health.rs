@@ -112,7 +112,7 @@ mod tests {
         {
             "status": "ok",
             "timestamp": "2023-01-01T00:00:00Z",
-            "version": "1.0.0"  // Keep as string for JSON test data
+            "version": "1.0.0"
         }
         "#;
         

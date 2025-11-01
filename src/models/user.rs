@@ -28,6 +28,7 @@ impl User {
     }
     
     /// Create a user with a specific ID (useful when retrieving from database)
+    #[allow(dead_code)]
     pub fn with_id(id: ObjectId, name: String, email: String, created_at: DateTime<Utc>) -> Self {
         User {
             id: Some(id),

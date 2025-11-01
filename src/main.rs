@@ -6,6 +6,8 @@ use dotenv::dotenv;
 use std::env;
 use std::sync::Arc;
 use warp::Filter;
+use warp::http::StatusCode;
+use serde_json::json;
 
 /// Default server port
 const DEFAULT_PORT: u16 = 3030;
@@ -74,10 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and(warp::any().map(move || db.clone()))
         .and_then(handlers::create_user);
     
+    // Custom error recovery handler to convert all errors to JSON responses
     let routes = health_route
         .or(users_get_all)
         .or(users_get_by_id)
         .or(users_create)
+        .recover(custom_reject)
         .with(warp::cors().allow_any_origin());
     
     println!("Starting server on port {}", port);
@@ -123,4 +127,37 @@ async fn handle_seed_command(args: &[String]) -> Result<(), Box<dyn std::error::
     }
     
     Ok(())
+}
+
+/// Custom error handler to convert all errors to structured JSON responses
+async fn custom_reject(err: warp::Rejection) -> Result<impl warp::Reply, std::convert::Infallible> {
+    let code;
+    let error_type;
+    let message: String;
+
+    if err.is_not_found() {
+        code = StatusCode::NOT_FOUND;
+        error_type = "not_found";
+        message = "Endpoint not found".to_string();
+    } else if let Some(_body_err) = err.find::<warp::filters::body::BodyDeserializeError>() {
+        code = StatusCode::BAD_REQUEST;
+        error_type = "validation_error";
+        message = "Invalid JSON format".to_string();
+    } else if let Some(_) = err.find::<warp::reject::MethodNotAllowed>() {
+        code = StatusCode::METHOD_NOT_ALLOWED;
+        error_type = "method_not_allowed";
+        message = "Method not allowed".to_string();
+    } else {
+        // Handle any other rejection by converting to string
+        code = StatusCode::BAD_REQUEST;
+        error_type = "bad_request";
+        message = format!("Request error: {:?}", err);
+    }
+
+    let json = json!({
+        "error": error_type,
+        "message": message
+    });
+
+    Ok(warp::reply::with_status(warp::reply::json(&json), code))
 }

@@ -12,7 +12,7 @@ A simple REST API built with Rust and MongoDB for user management.
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/patiphop/rust-simple-api
 cd rust-simple-api
 ```
 
